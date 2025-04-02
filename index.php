@@ -17,9 +17,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile']) && $_FILE
         $inputData = mb_convert_encoding($inputData, 'UTF-8', $encoding);
     }
     
+    // Detect delimiter (comma or semicolon)
+    $firstLine = strtok($inputData, "\n");
+    $delimiter = (strpos($firstLine, ';') !== false) ? ';' : ',';
+    
     // Parse CSV
     $lines = explode("\n", $inputData);
-    $header = str_getcsv(array_shift($lines), ';');
+    $headerLine = array_shift($lines);
+    
+    // Remove BOM if present
+    $headerLine = preg_replace('/^\xEF\xBB\xBF/', '', $headerLine);
+    
+    // Parse header with detected delimiter
+    $header = str_getcsv($headerLine, $delimiter);
     
     // Prepare output data array (without header yet)
     $outputData = [];
@@ -27,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile']) && $_FILE
     foreach ($lines as $line) {
         if (empty(trim($line))) continue;
         
-        $row = str_getcsv($line, ';');
+        $row = str_getcsv($line, $delimiter);
         if (count($row) < count($header)) continue;
         
         $rowData = array_combine($header, $row);
@@ -36,18 +46,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile']) && $_FILE
         $amount = $rowData['Amount (EUR)'] ?? '';
         $amount = str_replace('.', ',', $amount);
         
+        // Get booking date and convert format if needed (YYYY-MM-DD to DD.MM.YYYY)
+        $bookingDate = $rowData['Booking Date'] ?? '';
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $bookingDate)) {
+            $date = DateTime::createFromFormat('Y-m-d', $bookingDate);
+            if ($date) {
+                $bookingDate = $date->format('d.m.Y');
+            }
+        }
+        
         // Create new output row
         $newRow = [
-            $rowData['Booking Date'] ?? '',            // Buchungsdatum
-            $rowData['Partner Name'] ?? '',            // Partnername
-            $rowData['Partner Iban'] ?? '',            // Partner IBAN
-            '',                                        // BIC/SWIFT
-            '',                                        // Partner Kontonummer
-            '',                                        // Bankleitzahl
-            $amount,                                   // Betrag
-            'EUR',                                     // Währung
-            '',                                        // Buchungs-Info
-            $rowData['Payment Reference'] ?? ''        // Zahlungsreferenz
+            $bookingDate,                                 // Buchungsdatum
+            $rowData['Partner Name'] ?? '',               // Partnername
+            $rowData['Partner Iban'] ?? '',               // Partner IBAN
+            '',                                           // BIC/SWIFT
+            '',                                           // Partner Kontonummer
+            '',                                           // Bankleitzahl
+            $amount,                                      // Betrag
+            'EUR',                                        // Währung
+            '',                                           // Buchungs-Info
+            $rowData['Payment Reference'] ?? ''           // Zahlungsreferenz
         ];
         
         $outputData[] = $newRow;
@@ -174,7 +193,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile']) && $_FILE
                 <li>Click "Convert and Download" to process the file</li>
                 <li>The converted file will download automatically</li>
             </ol>
-            <p><strong>Note:</strong> The converted file will be sorted by date and include the current date in the filename.</p>
+            <p><strong>Note:</strong> The converter supports both semicolon (;) and comma (,) delimited files, as well as different date formats.</p>
         </div>
     </div>
 </body>
